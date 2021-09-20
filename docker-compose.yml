@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+
+  bridge:
+    build: mqtt-crate-bridge
+    depends_on:
+      - crate
+      - mqtt
+    env_file: .env
+
+  crate:
+    # crate:4.6.1
+    image: crate@sha256:b8cc7ff12db9851baea4394a507d27361b14b547eec1caf5536a410fce6335f5
+    volumes:
+      - crate-data:/data
+
+  mqtt:
+    # eclipse-mosquitto:2.0.11
+    image: eclipse-mosquitto@sha256:610eaf4aadce8090d4a6af580788189272ca9ba39671cd9ab02f47df9ed0461e
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+
+volumes:
+  crate-data:
+  mosquitto-data:
+  mosquitto-log:
