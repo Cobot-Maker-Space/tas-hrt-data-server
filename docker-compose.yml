@@ -7,7 +7,6 @@ services:
     depends_on:
       - crate
       - mqtt
-    env_file: .env
 
   crate:
     # crate:4.6.1

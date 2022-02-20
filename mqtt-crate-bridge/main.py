@@ -1,47 +1,92 @@
-# TODO: Configuration parameters should be passed as environment variables
-# https://pypi.org/project/envparse/
-
 import re
 import time
+
+from threading import Lock
+from typing import final
 
 import crate.client as crate
 import paho.mqtt.client as mqtt
 
-MQTT_HOST = 'mqtt'
+MQTT_HOST = "mqtt"
 MQTT_PORT = 1883
 MQTT_KEEPALIVE = 60
-MQTT_TOPIC_BASE = 'tas/hrt/uvc'
-MQTT_TOPIC_REGEX = re.compile(f'^{MQTT_TOPIC_BASE}/([^/]*)$')
+MQTT_TOPIC_UVC_BASE = "tas/hrt/uvc"
+MQTT_TOPIC_UVC_REGEX = re.compile(f"^{MQTT_TOPIC_UVC_BASE}/([^/]*)$")
+MQTT_TOPIC_LOG = "tas/hrt/log"
+MQTT_TOPIC_ODOM_LOG = "tas/hrt/odometry"
 
-CRATE_HOST = 'http://crate:4200'
-CRATE_USERNAME = 'crate'
+CRATE_HOST = "http://crate:4200"
+CRATE_USERNAME = "crate"
 
 TIME_CONSTANT = time.time() - time.monotonic()
 
+MUTEX = Lock()
+
 
 def on_connect(client, userdata, flags, rc):
-    print(f'MQTT-Crate Bridge connected (result code: {rc})')
-    client.subscribe(f'{MQTT_TOPIC_BASE}/+')
+    print(f"MQTT-Crate Bridge connected (result code: {rc})")
+    client.subscribe(f"{MQTT_TOPIC_UVC_BASE}/+")
+    client.subscribe(MQTT_TOPIC_LOG)
+    client.subscribe(MQTT_TOPIC_ODOM_LOG)
 
 
 def on_message(client, cursor: crate.connection.Cursor, msg: mqtt.MQTTMessage):
-    m = MQTT_TOPIC_REGEX.match(msg.topic)
-    if not m:
-        return
-    cursor.execute("""INSERT INTO uvc_sensor_readings
-            (client_id, timestamp_millis, data) values (?, ?, ?)""",
-                   (m.group(1),
+    m = MQTT_TOPIC_UVC_REGEX.match(msg.topic)
+    MUTEX.acquire()
+    try:
+        if m:
+            cursor.execute(
+                """INSERT INTO uvc_sensor_readings
+                    (client_id, timestamp_millis, data) values (?, ?, ?)""",
+                (
+                    m.group(1),
                     int((msg.timestamp + TIME_CONSTANT) * 1000),
-                    float(msg.payload)))
+                    float(msg.payload),
+                ),
+            )
+        elif msg.topic == MQTT_TOPIC_LOG:
+            cursor.execute(
+                """INSERT INTO uvc_log
+                    (timestamp_millis, message) values (?, ?)""",
+                (
+                    int((msg.timestamp + TIME_CONSTANT) * 1000),
+                    msg.payload.decode(encoding="UTF8"),
+                ),
+            )
+        elif msg.topic == MQTT_TOPIC_ODOM_LOG:
+            cursor.execute(
+                """INSERT INTO odom_log
+                    (timestamp_millis, data) values (?, ?)""",
+                (
+                    int((msg.timestamp + TIME_CONSTANT) * 1000),
+                    msg.payload.decode(encoding="UTF8"),
+                ),
+            )
+    finally:
+        MUTEX.release()
 
 
-def create_table(conn: crate.connection.Connection):
+def create_tables(conn: crate.connection.Connection):
     cursor = conn.cursor()
     stmnt = """
     CREATE TABLE IF NOT EXISTS uvc_sensor_readings (
         client_id text,
         timestamp_millis bigint,
         data double precision
+    )
+    """
+    cursor.execute(stmnt)
+    stmnt = """
+    CREATE TABLE IF NOT EXISTS uvc_log (
+        timestamp_millis bigint,
+        message text
+    )
+    """
+    cursor.execute(stmnt)
+    stmnt = """
+    CREATE TABLE IF NOT EXISTS odom_log (
+        timestamp_millis bigint,
+        data text
     )
     """
     cursor.execute(stmnt)
@@ -52,14 +97,14 @@ def main():
     mqtt_client = mqtt.Client()
     mqtt_client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE)
     crate_conn = crate.connect(CRATE_HOST, username=CRATE_USERNAME)
-    create_table(crate_conn)
+    create_tables(crate_conn)
     mqtt_client.user_data_set(crate_conn.cursor())
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
     mqtt_client.loop_forever()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # HACK: Give CrateIO time to start
     time.sleep(10)
     main()
