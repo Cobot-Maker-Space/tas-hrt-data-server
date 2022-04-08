@@ -1,4 +1,4 @@
-# UVc Sensor Data Logger
+# UVc Sensor Data Server
 
 MQTT broker for logging UVc sensor readings and robot odometry (ROS) messages
 to a [CrateDB][1] server.
