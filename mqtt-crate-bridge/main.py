@@ -12,7 +12,7 @@ MQTT_PORT = 1883
 MQTT_KEEPALIVE = 60
 MQTT_TOPIC_UVC_BASE = "tas/hrt/uvc"
 MQTT_TOPIC_UVC_REGEX = re.compile(f"^{MQTT_TOPIC_UVC_BASE}/([^/]*)$")
-MQTT_TOPIC_LOG = "tas/hrt/log"
+MQTT_TOPIC_LOG = "tas/hrt/session"
 MQTT_TOPIC_ODOM_LOG = "tas/hrt/odometry"
 
 CRATE_HOST = "http://crate:4200"
@@ -36,7 +36,7 @@ def on_message(client, cursor: crate.connection.Cursor, msg: mqtt.MQTTMessage):
     try:
         if m:
             cursor.execute(
-                """INSERT INTO uvc_sensor_readings
+                """INSERT INTO uvc
                     (client_id, timestamp_millis, data) values (?, ?, ?)""",
                 (
                     m.group(1),
@@ -46,7 +46,7 @@ def on_message(client, cursor: crate.connection.Cursor, msg: mqtt.MQTTMessage):
             )
         elif msg.topic == MQTT_TOPIC_LOG:
             cursor.execute(
-                """INSERT INTO uvc_log
+                """INSERT INTO session
                     (timestamp_millis, message) values (?, ?)""",
                 (
                     int((msg.timestamp + TIME_CONSTANT) * 1000),
@@ -55,7 +55,7 @@ def on_message(client, cursor: crate.connection.Cursor, msg: mqtt.MQTTMessage):
             )
         elif msg.topic == MQTT_TOPIC_ODOM_LOG:
             cursor.execute(
-                """INSERT INTO odom_log
+                """INSERT INTO odometry
                     (timestamp_millis, data) values (?, ?)""",
                 (
                     int((msg.timestamp + TIME_CONSTANT) * 1000),
@@ -69,7 +69,7 @@ def on_message(client, cursor: crate.connection.Cursor, msg: mqtt.MQTTMessage):
 def create_tables(conn: crate.connection.Connection):
     cursor = conn.cursor()
     stmnt = """
-    CREATE TABLE IF NOT EXISTS uvc_sensor_readings (
+    CREATE TABLE IF NOT EXISTS uvc (
         client_id text,
         timestamp_millis bigint,
         data double precision
@@ -77,14 +77,14 @@ def create_tables(conn: crate.connection.Connection):
     """
     cursor.execute(stmnt)
     stmnt = """
-    CREATE TABLE IF NOT EXISTS uvc_log (
+    CREATE TABLE IF NOT EXISTS session (
         timestamp_millis bigint,
         message text
     )
     """
     cursor.execute(stmnt)
     stmnt = """
-    CREATE TABLE IF NOT EXISTS odom_log (
+    CREATE TABLE IF NOT EXISTS odometry (
         timestamp_millis bigint,
         data text
     )
